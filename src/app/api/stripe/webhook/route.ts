@@ -69,24 +69,20 @@ export async function POST(req: Request) {
 
 // Handle successful checkout
 async function handleCheckoutCompleted(session: Stripe.Checkout.Session, supabase: any) {
-  const userId = session.client_reference_id
-  const subscriptionId = session.subscription as string
-  const customerId = session.customer as string
-
-  // Get subscription details from Stripe
-  const subscription: any = await stripe.subscriptions.retrieve(subscriptionId)
-  const priceId = subscription.items.data[0].price.id
-  const planId = getPlanIdFromPrice(priceId)
-  const interval = subscription.items.data[0].price.recurring?.interval
-
-  // End current subscription if exists
+  const userId = session.metadata?.userId
+  const planId = session.metadata?.planId
+  const interval = session.metadata?.interval
+  
+  const subscription: any = await stripe.subscriptions.retrieve(session.subscription as string)
+  
+  // End current subscription
   await supabase
     .from('subscriptions')
     .update({ status: 'expired', end_date: new Date().toISOString() })
     .eq('user_id', userId)
     .eq('status', 'active')
-
-  // Create new subscription
+  
+  // Create new paid subscription
   await supabase.from('subscriptions').insert({
     user_id: userId,
     plan_id: planId,
@@ -94,20 +90,12 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session, supabas
     billing_interval: interval,
     start_date: new Date(subscription.current_period_start * 1000).toISOString(),
     end_date: new Date(subscription.current_period_end * 1000).toISOString(),
-    stripe_subscription_id: subscriptionId,
-    stripe_customer_id: customerId,
-    stripe_price_id: priceId,
+    stripe_subscription_id: subscription.id,
+    stripe_customer_id: session.customer,
+    stripe_price_id: subscription.items.data[0].price.id,
     auto_renew: true,
-    next_billing_date: new Date(subscription.current_period_end * 1000).toISOString(),
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString()
+    next_billing_date: new Date(subscription.current_period_end * 1000).toISOString()
   })
-
-  // Update profile with customer ID if not exists
-  await supabase
-    .from('profiles')
-    .update({ stripe_customer_id: customerId })
-    .eq('id', userId)
 }
 
 // Handle successful invoice payment
@@ -184,29 +172,20 @@ async function handleSubscriptionUpdated(subscription: Stripe.Subscription | any
 
 // Handle subscription deletion/cancellation
 async function handleSubscriptionDeleted(subscription: Stripe.Subscription, supabase: any) {
-  // Update the subscription to expired
+  // Mark old subscription as expired
   await supabase
     .from('subscriptions')
-    .update({
-      status: 'expired',
-      end_date: new Date().toISOString(),
-      auto_renew: false,
-      updated_at: new Date().toISOString()
-    })
+    .update({ status: 'expired', end_date: new Date().toISOString() })
     .eq('stripe_subscription_id', subscription.id)
-
-  // Create a free plan subscription for the user
-  const userId = subscription.metadata.userId
   
+  // Create new free subscription
   await supabase.from('subscriptions').insert({
-    user_id: userId,
+    user_id: subscription.metadata.userId,
     plan_id: 'free',
     status: 'active',
     billing_interval: 'monthly',
     start_date: new Date().toISOString(),
-    auto_renew: true,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString()
+    auto_renew: true
   })
 }
 

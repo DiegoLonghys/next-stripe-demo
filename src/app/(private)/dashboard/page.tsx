@@ -131,26 +131,27 @@ export default function Dashboard() {
       setLoading(false)
     }
   }
-
-  const handlePlanChange = async (newPlanId: string, interval: 'monthly' | 'yearly') => {
+  
+  const handlePlanChange = async (planId: string, interval: 'monthly' | 'yearly') => {
     try {
       setLoading(true)
 
       const res = await fetch('/api/stripe/checkout', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          planId: newPlanId,
-          interval,
-          currentPlanId: currentPlan?.id,
-          subscriptionId: subscription?.id
-        })
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ planId, interval })
       })
 
       const { url } = await res.json()
-      window.location.href = url
+
+      if (url.startsWith('/dashboard')) {
+        // Free plan - redirect directly
+        router.push(url)
+        router.refresh()
+      } else {
+        // Paid plan - redirect to Stripe
+        window.location.href = url
+      }
     } catch (error) {
       console.error('Error changing plan:', error)
     } finally {
@@ -394,8 +395,8 @@ export default function Dashboard() {
                 <div
                   key={plan.id}
                   className={`border rounded-lg p-4 ${plan.id === currentPlan?.id
-                      ? 'border-purple-500 bg-purple-50'
-                      : 'border-gray-200 hover:border-purple-300'
+                    ? 'border-purple-500 bg-purple-50'
+                    : 'border-gray-200 hover:border-purple-300'
                     }`}
                 >
                   <h4 className="font-bold text-gray-900">{plan.name}</h4>
@@ -485,8 +486,8 @@ export default function Dashboard() {
             <Link
               href="/events/new"
               className={`px-4 py-2 rounded-lg transition text-sm flex items-center ${eventsCount >= (currentPlan?.plan_limits?.max_events || 3)
-                  ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                  : 'bg-purple-600 text-white hover:bg-purple-700'
+                ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                : 'bg-purple-600 text-white hover:bg-purple-700'
                 }`}
               onClick={(e) => {
                 if (eventsCount >= (currentPlan?.plan_limits?.max_events || 3)) {

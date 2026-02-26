@@ -57,52 +57,6 @@ export default function LoginPage() {
     }
   }
 
-  // const handleFastLogin = async () => {
-  //   setLoading(true)
-  //   setError(null)
-
-  //   try {
-  //     const fakeEmail = `test-${Math.floor(Math.random() * 1000)}@event.com`
-  //     const fakePassword = 'password123'
-
-  //     // First try to sign in
-  //     let { data, error } = await supabase.auth.signInWithPassword({
-  //       email: fakeEmail,
-  //       password: fakePassword,
-  //     })
-
-  //     // If sign in fails, try to sign up
-  //     if (error) {
-  //       const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
-  //         email: fakeEmail,
-  //         password: fakePassword,
-  //       })
-
-  //       if (signUpError) throw signUpError
-
-  //       // Auto sign in after signup
-  //       const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
-  //         email: fakeEmail,
-  //         password: fakePassword,
-  //       })
-
-  //       if (signInError) throw signInError
-  //       data = signInData
-  //     }
-
-  //     if (data?.user) {
-  //       router.push('/dashboard')
-  //       router.refresh()
-  //     }
-  //   } catch (error: any) {
-  //     setError(error.message)
-  //   } finally {
-  //     setLoading(false)
-  //   }
-  // }
-
-
-
   const handleFastLogin = async () => {
     setLoading(true)
     setError(null)
