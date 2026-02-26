@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { createClient } from '@/utils/supabase/client'
+import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 
@@ -58,7 +58,7 @@ export default function Dashboard() {
   const fetchUserData = async () => {
     try {
       const { data: { user } } = await supabase.auth.getUser()
-      
+
       if (!user) {
         router.push('/auth/login')
         return
@@ -70,7 +70,7 @@ export default function Dashboard() {
         .select('*')
         .eq('id', user.id)
         .single()
-      
+
       setProfile(profileData)
 
       // Fetch current subscription with plan details
@@ -122,7 +122,7 @@ export default function Dashboard() {
         .eq('user_id', user.id)
         .order('created_at', { ascending: false })
         .limit(5)
-      
+
       setEvents(eventsData || [])
 
     } catch (error) {
@@ -135,7 +135,7 @@ export default function Dashboard() {
   const handlePlanChange = async (newPlanId: string, interval: 'monthly' | 'yearly') => {
     try {
       setLoading(true)
-      
+
       const res = await fetch('/api/stripe/checkout', {
         method: 'POST',
         headers: {
@@ -148,13 +148,28 @@ export default function Dashboard() {
           subscriptionId: subscription?.id
         })
       })
-      
+
       const { url } = await res.json()
       window.location.href = url
     } catch (error) {
       console.error('Error changing plan:', error)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleManageBilling = async () => {
+    try {
+      const res = await fetch('/api/stripe/portal', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      })
+      const { url } = await res.json()
+      window.location.href = url
+    } catch (error) {
+      console.error('Error opening billing portal:', error)
     }
   }
 
@@ -165,7 +180,7 @@ export default function Dashboard() {
 
     try {
       setLoading(true)
-      
+
       const res = await fetch('/api/stripe/cancel', {
         method: 'POST',
         headers: {
@@ -272,8 +287,8 @@ export default function Dashboard() {
             <div>
               <h2 className="text-xl font-semibold text-gray-900">Current Plan: {currentPlan?.name}</h2>
               <p className="text-gray-600 mt-1">
-                {subscription?.billing_interval === 'yearly' 
-                  ? `€${currentPlan?.price_yearly}/year` 
+                {subscription?.billing_interval === 'yearly'
+                  ? `€${currentPlan?.price_yearly}/year`
                   : `€${currentPlan?.price_monthly}/month`}
                 {subscription?.discount_percent ? ` (${subscription.discount_percent}% off)` : ''}
               </p>
@@ -284,6 +299,15 @@ export default function Dashboard() {
             >
               {showPlanSelector ? 'Hide Plans' : 'Change Plan'}
             </button>
+
+            {subscription?.plan_id !== 'free' && (
+              <button
+                onClick={handleManageBilling}
+                className="mt-2 text-sm text-purple-600 hover:text-purple-800 transition"
+              >
+                Manage Billing
+              </button>
+            )}
           </div>
 
           {/* Plan Usage Bar */}
@@ -293,7 +317,7 @@ export default function Dashboard() {
               <span>{eventsCount} / {currentPlan?.plan_limits?.max_events} events</span>
             </div>
             <div className="w-full bg-gray-200 rounded-full h-2">
-              <div 
+              <div
                 className="bg-purple-600 rounded-full h-2 transition-all duration-300"
                 style={{ width: `${Math.min(getPlanUsagePercentage(), 100)}%` }}
               ></div>
@@ -318,8 +342,8 @@ export default function Dashboard() {
             </div>
             <div className="text-center">
               <p className="text-2xl font-bold text-gray-900">
-                {currentPlan?.plan_limits?.support_level === 'dedicated' ? '🌟' : 
-                 currentPlan?.plan_limits?.support_level === 'priority' ? '⭐' : '📧'}
+                {currentPlan?.plan_limits?.support_level === 'dedicated' ? '🌟' :
+                  currentPlan?.plan_limits?.support_level === 'priority' ? '⭐' : '📧'}
               </p>
               <p className="text-xs text-gray-600">Support Level</p>
             </div>
@@ -348,7 +372,7 @@ export default function Dashboard() {
                   </div>
                 )}
               </div>
-              
+
               {subscription.plan_id !== 'free' && (
                 <button
                   onClick={handleCancelSubscription}
@@ -367,13 +391,12 @@ export default function Dashboard() {
             <h3 className="text-lg font-semibold text-gray-900 mb-4">Choose a Plan</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               {availablePlans.map((plan) => (
-                <div 
+                <div
                   key={plan.id}
-                  className={`border rounded-lg p-4 ${
-                    plan.id === currentPlan?.id 
-                      ? 'border-purple-500 bg-purple-50' 
+                  className={`border rounded-lg p-4 ${plan.id === currentPlan?.id
+                      ? 'border-purple-500 bg-purple-50'
                       : 'border-gray-200 hover:border-purple-300'
-                  }`}
+                    }`}
                 >
                   <h4 className="font-bold text-gray-900">{plan.name}</h4>
                   <p className="text-2xl font-bold text-gray-900 mt-2">
@@ -383,7 +406,7 @@ export default function Dashboard() {
                   <p className="text-sm text-gray-600 mt-1">
                     or €{plan.price_yearly}/year
                   </p>
-                  
+
                   <ul className="mt-4 space-y-2 text-sm">
                     <li className="flex items-center">
                       <span className="text-green-500 mr-2">✓</span>
@@ -459,13 +482,12 @@ export default function Dashboard() {
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
           <div className="flex items-center justify-between mb-6">
             <h2 className="text-xl font-semibold text-gray-900">Recent Events</h2>
-            <Link 
-              href="/events/new" 
-              className={`px-4 py-2 rounded-lg transition text-sm flex items-center ${
-                eventsCount >= (currentPlan?.plan_limits?.max_events || 3)
+            <Link
+              href="/events/new"
+              className={`px-4 py-2 rounded-lg transition text-sm flex items-center ${eventsCount >= (currentPlan?.plan_limits?.max_events || 3)
                   ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
                   : 'bg-purple-600 text-white hover:bg-purple-700'
-              }`}
+                }`}
               onClick={(e) => {
                 if (eventsCount >= (currentPlan?.plan_limits?.max_events || 3)) {
                   e.preventDefault()
@@ -499,9 +521,9 @@ export default function Dashboard() {
                       </button>
                     )}
                     <span className={`px-3 py-1 rounded-full text-xs font-semibold
-                      ${event.status === 'active' ? 'bg-green-100 text-green-800' : 
-                        event.status === 'draft' ? 'bg-gray-100 text-gray-800' : 
-                        'bg-yellow-100 text-yellow-800'}`}>
+                      ${event.status === 'active' ? 'bg-green-100 text-green-800' :
+                        event.status === 'draft' ? 'bg-gray-100 text-gray-800' :
+                          'bg-yellow-100 text-yellow-800'}`}>
                       {event.status || 'Draft'}
                     </span>
                   </div>
@@ -516,8 +538,8 @@ export default function Dashboard() {
               <h3 className="text-lg font-semibold text-gray-900 mb-2">No events yet</h3>
               <p className="text-gray-600 mb-4">Create your first event to get started</p>
               {eventsCount < (currentPlan?.plan_limits?.max_events || 3) && (
-                <Link 
-                  href="/events/new" 
+                <Link
+                  href="/events/new"
                   className="inline-flex items-center px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition"
                 >
                   Create Your First Event
