@@ -21,12 +21,6 @@ Installa Stripe nel progetto:
 npm install stripe
 ```
 
-Se utilizzi TypeScript:
-
-```
-npm install -D @types/node
-```
-
 ---
 
 # 2. Variabili d'Ambiente
