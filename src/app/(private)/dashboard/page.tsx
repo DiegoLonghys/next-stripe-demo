@@ -88,11 +88,11 @@ export default function Dashboard() {
         `)
         .eq('user_id', user.id)
         .eq('status', 'active')
-        .single()
 
-      if (subscriptionData) {
-        setSubscription(subscriptionData)
-        setCurrentPlan(subscriptionData.plan)
+      const updated = subscriptionData?.pop()
+      if (updated) {
+        setSubscription(updated)
+        setCurrentPlan(updated.plan)
       }
 
       // Fetch all available plans for upgrade/downgrade
