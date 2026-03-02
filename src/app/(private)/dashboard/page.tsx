@@ -3,8 +3,14 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
-import Link from 'next/link'
-import { getPlanBadgeColor, getPlanUsagePercentage } from '@/utils'
+import DashboardLayout from '@/components/dashboard/DashboardLayout'
+import DashboardHeader from '@/components/dashboard/DashboardHeader'
+import PlanOverviewCard from '@/components/dashboard/PlanOverviewCard'
+import PlanSelector from '@/components/dashboard/PlanSelector'
+import UpgradeBanner from '@/components/dashboard/UpgradeBanner'
+import RecentEvents from '@/components/dashboard/RecentEvents'
+import ReferralSection from '@/components/dashboard/ReferralSection'
+import LoadingSpinner from '@/components/common/LoadingSpinner'
 
 export default function Dashboard() {
   const supabase = createClient()
@@ -98,7 +104,7 @@ export default function Dashboard() {
       setLoading(false)
     }
   }
-  
+
   const handlePlanChange = async (planId: string, interval: 'monthly' | 'yearly') => {
     try {
       setLoading(true)
@@ -172,366 +178,48 @@ export default function Dashboard() {
     router.refresh()
   }
 
-
-
   if (loading) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Loading your dashboard...</p>
-        </div>
-      </div>
-    )
+    return <LoadingSpinner />
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Navigation */}
-      <nav className="bg-white shadow-sm border-b border-gray-200 sticky top-0 z-10">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            <div className="flex items-center">
-              <Link href="/" className="text-2xl font-bold bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent">
-                EventCreator
-              </Link>
-            </div>
-            <div className="flex items-center space-x-4">
-              {/* Plan Badge */}
-              <span className={`px-3 py-1 rounded-full text-xs font-semibold ${getPlanBadgeColor(currentPlan!.name)}`}>
-                {currentPlan?.name || 'Free'} Plan
-              </span>
-              <span className="text-sm text-gray-600">
-                {profile?.full_name || profile?.email || 'User'}
-              </span>
-              <button
-                onClick={handleLogout}
-                className="px-4 py-2 text-sm text-gray-700 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition"
-              >
-                Logout
-              </button>
-            </div>
-          </div>
-        </div>
-      </nav>
+    <DashboardLayout onLogout={handleLogout} userEmail={profile?.email} userName={profile?.full_name}>
+      <DashboardHeader
+        fullName={profile?.full_name}
+        referralCode={profile?.referral_code}
+      />
 
-      {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Welcome Header with Referral Code */}
-        <div className="mb-8 flex flex-col md:flex-row md:items-center md:justify-between">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900">
-              Welcome back, {profile?.full_name?.split(' ')[0] || 'there'}! 👋
-            </h1>
-            <p className="text-gray-600 mt-2">
-              Here's what's happening with your events
-            </p>
-          </div>
-          {profile?.referral_code && (
-            <div className="mt-4 md:mt-0 bg-purple-50 border border-purple-200 rounded-lg px-4 py-2">
-              <p className="text-sm text-purple-700">
-                Your referral code: <span className="font-mono font-bold">{profile.referral_code}</span>
-              </p>
-            </div>
-          )}
-        </div>
+      <PlanOverviewCard
+        currentPlan={currentPlan}
+        subscription={subscription}
+        eventsCount={eventsCount}
+        onShowPlanSelector={() => setShowPlanSelector(!showPlanSelector)}
+        onManageBilling={handleManageBilling}
+        onCancelSubscription={handleCancelSubscription}
+        showPlanSelector={showPlanSelector}
+      />
 
-        {/* Plan Overview Card */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-8">
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-6">
-            <div>
-              <h2 className="text-xl font-semibold text-gray-900">Current Plan: {currentPlan?.name}</h2>
-              <p className="text-gray-600 mt-1">
-                {subscription?.billing_interval === 'yearly'
-                  ? `€${currentPlan?.price_yearly}/year`
-                  : `€${currentPlan?.price_monthly}/month`}
-                {subscription?.discount_percent ? ` (${subscription.discount_percent}% off)` : ''}
-              </p>
-            </div>
-            <button
-              onClick={() => setShowPlanSelector(!showPlanSelector)}
-              className="mt-4 md:mt-0 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition"
-            >
-              {showPlanSelector ? 'Hide Plans' : 'Change Plan'}
-            </button>
+      {showPlanSelector && (
+        <PlanSelector
+          availablePlans={availablePlans}
+          currentPlanId={currentPlan?.id}
+          onPlanChange={handlePlanChange}
+        />
+      )}
 
-            {subscription?.plan_id !== 'free' && (
-              <button
-                onClick={handleManageBilling}
-                className="mt-2 text-sm text-purple-600 hover:text-purple-800 transition"
-              >
-                Manage Billing
-              </button>
-            )}
-          </div>
+      {currentPlan?.id === 'free' && !showPlanSelector && (
+        <UpgradeBanner onShowPlans={() => setShowPlanSelector(true)} />
+      )}
 
-          {/* Plan Usage Bar */}
-          <div className="mb-4">
-            <div className="flex justify-between text-sm text-gray-600 mb-1">
-              <span>Events Usage</span>
-              <span>{eventsCount} / {currentPlan?.plan_limits?.max_events} events</span>
-            </div>
-            <div className="w-full bg-gray-200 rounded-full h-2">
-              <div
-                className="bg-purple-600 rounded-full h-2 transition-all duration-300"
-                style={{ width: `${Math.min(getPlanUsagePercentage(currentPlan, eventsCount), 100)}%` }}
-              ></div>
-            </div>
-          </div>
+      <RecentEvents
+        events={events}
+        currentPlan={currentPlan}
+        eventsCount={eventsCount}
+      />
 
-          {/* Plan Features */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
-            <div className="text-center">
-              <p className="text-2xl font-bold text-gray-900">{currentPlan?.plan_limits?.max_attendees_per_event}</p>
-              <p className="text-xs text-gray-600">Max Attendees/Event</p>
-            </div>
-            <div className="text-center">
-              <p className="text-2xl font-bold text-gray-900">{currentPlan?.plan_limits?.max_team_members}</p>
-              <p className="text-xs text-gray-600">Team Members</p>
-            </div>
-            <div className="text-center">
-              <p className="text-2xl font-bold text-gray-900">
-                {currentPlan?.plan_limits?.allow_qr_codes ? '✓' : '✗'}
-              </p>
-              <p className="text-xs text-gray-600">QR Codes</p>
-            </div>
-            <div className="text-center">
-              <p className="text-2xl font-bold text-gray-900">
-                {currentPlan?.plan_limits?.support_level === 'dedicated' ? '🌟' :
-                  currentPlan?.plan_limits?.support_level === 'priority' ? '⭐' : '📧'}
-              </p>
-              <p className="text-xs text-gray-600">Support Level</p>
-            </div>
-          </div>
-
-          {/* Subscription Details */}
-          {subscription && (
-            <div className="mt-6 pt-6 border-t border-gray-200">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
-                <div>
-                  <p className="text-gray-600">Status</p>
-                  <p className="font-semibold text-gray-900 capitalize">{subscription.status}</p>
-                </div>
-                <div>
-                  <p className="text-gray-600">Started</p>
-                  <p className="font-semibold text-gray-900">
-                    {new Date(subscription.start_date).toLocaleDateString()}
-                  </p>
-                </div>
-                {subscription.next_billing_date && (
-                  <div>
-                    <p className="text-gray-600">Next Billing</p>
-                    <p className="font-semibold text-gray-900">
-                      {new Date(subscription.next_billing_date).toLocaleDateString()}
-                    </p>
-                  </div>
-                )}
-              </div>
-
-              {subscription.plan_id !== 'free' && (
-                <button
-                  onClick={handleCancelSubscription}
-                  className="mt-4 text-sm text-red-600 hover:text-red-800 transition"
-                >
-                  Cancel Subscription
-                </button>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Plan Selector (shown when clicking Change Plan) */}
-        {showPlanSelector && (
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-8">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Choose a Plan</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              {availablePlans.map((plan) => (
-                <div
-                  key={plan.id}
-                  className={`border rounded-lg p-4 ${plan.id === currentPlan?.id
-                    ? 'border-purple-500 bg-purple-50'
-                    : 'border-gray-200 hover:border-purple-300'
-                    }`}
-                >
-                  <h4 className="font-bold text-gray-900">{plan.name}</h4>
-                  <p className="text-2xl font-bold text-gray-900 mt-2">
-                    €{plan.price_monthly}
-                    <span className="text-sm font-normal text-gray-600">/mo</span>
-                  </p>
-                  <p className="text-sm text-gray-600 mt-1">
-                    or €{plan.price_yearly}/year
-                  </p>
-
-                  <ul className="mt-4 space-y-2 text-sm">
-                    <li className="flex items-center">
-                      <span className="text-green-500 mr-2">✓</span>
-                      {plan.plan_limits.max_events} events max
-                    </li>
-                    <li className="flex items-center">
-                      <span className="text-green-500 mr-2">✓</span>
-                      {plan.plan_limits.max_attendees_per_event} attendees/event
-                    </li>
-                    {plan.plan_limits.allow_qr_codes && (
-                      <li className="flex items-center">
-                        <span className="text-green-500 mr-2">✓</span>
-                        QR Codes
-                      </li>
-                    )}
-                    {plan.plan_limits.allow_advanced_analytics && (
-                      <li className="flex items-center">
-                        <span className="text-green-500 mr-2">✓</span>
-                        Advanced Analytics
-                      </li>
-                    )}
-                  </ul>
-
-                  {plan.id !== currentPlan?.id && (
-                    <div className="mt-4 space-y-2">
-                      <button
-                        onClick={() => handlePlanChange(plan.id, 'monthly')}
-                        className="w-full px-3 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition text-sm"
-                      >
-                        Select Monthly
-                      </button>
-                      <button
-                        onClick={() => handlePlanChange(plan.id, 'yearly')}
-                        className="w-full px-3 py-2 border border-purple-600 text-purple-600 rounded-lg hover:bg-purple-50 transition text-sm"
-                      >
-                        Select Yearly (Save 17%)
-                      </button>
-                    </div>
-                  )}
-
-                  {plan.id === currentPlan?.id && (
-                    <div className="mt-4 px-3 py-2 bg-gray-100 text-gray-600 rounded-lg text-sm text-center">
-                      Current Plan
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Upgrade Banner for Free Users */}
-        {currentPlan?.id === 'free' && !showPlanSelector && (
-          <div className="bg-gradient-to-r from-purple-600 to-pink-600 rounded-2xl shadow-xl p-8 mb-8 text-white">
-            <div className="flex flex-col md:flex-row items-center justify-between">
-              <div>
-                <h2 className="text-2xl font-bold mb-2">Upgrade to unlock more features! 🚀</h2>
-                <p className="text-white/90 mb-4 md:mb-0">
-                  Get more events, advanced analytics, QR codes, and priority support
-                </p>
-              </div>
-              <button
-                onClick={() => setShowPlanSelector(true)}
-                className="px-8 py-3 bg-white text-purple-600 rounded-full font-semibold shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-300"
-              >
-                View Plans
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Recent Events */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-          <div className="flex items-center justify-between mb-6">
-            <h2 className="text-xl font-semibold text-gray-900">Recent Events</h2>
-            <Link
-              href="/events/new"
-              className={`px-4 py-2 rounded-lg transition text-sm flex items-center ${eventsCount >= (currentPlan?.plan_limits?.max_events || 3)
-                ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                : 'bg-purple-600 text-white hover:bg-purple-700'
-                }`}
-              onClick={(e) => {
-                if (eventsCount >= (currentPlan?.plan_limits?.max_events || 3)) {
-                  e.preventDefault()
-                  alert(`You've reached the limit of ${currentPlan?.plan_limits?.max_events} events on your current plan. Please upgrade to create more.`)
-                }
-              }}
-            >
-              + New Event
-              {eventsCount >= (currentPlan?.plan_limits?.max_events || 3) && (
-                <span className="ml-2 text-xs">(limit reached)</span>
-              )}
-            </Link>
-          </div>
-
-          {events.length > 0 ? (
-            <div className="space-y-4">
-              {events.map((event) => (
-                <div key={event.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition">
-                  <div>
-                    <h3 className="font-semibold text-gray-900">{event.title}</h3>
-                    <p className="text-sm text-gray-600">
-                      {new Date(event.date).toLocaleDateString()} • {event.attendees || 0} attendees
-                    </p>
-                  </div>
-                  <div className="flex items-center space-x-3">
-                    {currentPlan?.plan_limits?.allow_qr_codes && (
-                      <button className="text-purple-600 hover:text-purple-800">
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" />
-                        </svg>
-                      </button>
-                    )}
-                    <span className={`px-3 py-1 rounded-full text-xs font-semibold
-                      ${event.status === 'active' ? 'bg-green-100 text-green-800' :
-                        event.status === 'draft' ? 'bg-gray-100 text-gray-800' :
-                          'bg-yellow-100 text-yellow-800'}`}>
-                      {event.status || 'Draft'}
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="text-center py-12">
-              <svg className="w-16 h-16 text-gray-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-              </svg>
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">No events yet</h3>
-              <p className="text-gray-600 mb-4">Create your first event to get started</p>
-              {eventsCount < (currentPlan?.plan_limits?.max_events || 3) && (
-                <Link
-                  href="/events/new"
-                  className="inline-flex items-center px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition"
-                >
-                  Create Your First Event
-                  <svg className="w-5 h-5 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
-                  </svg>
-                </Link>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Referral Section */}
-        {profile?.referral_code && (
-          <div className="mt-8 bg-gradient-to-r from-green-500 to-teal-500 rounded-xl shadow-sm p-6 text-white">
-            <div className="flex flex-col md:flex-row items-center justify-between">
-              <div>
-                <h3 className="text-lg font-semibold mb-2">Invite Friends, Get Rewards! 🎁</h3>
-                <p className="text-white/90 mb-4 md:mb-0">
-                  Share your referral code and get 1 month free for each friend who upgrades
-                </p>
-              </div>
-              <div className="flex items-center space-x-2">
-                <code className="px-4 py-2 bg-white/20 rounded-lg font-mono text-lg">
-                  {profile.referral_code}
-                </code>
-                <button
-                  onClick={() => navigator.clipboard.writeText(profile.referral_code)}
-                  className="px-4 py-2 bg-white text-teal-600 rounded-lg hover:bg-gray-100 transition"
-                >
-                  Copy
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-      </main>
-    </div>
+      {profile?.referral_code && (
+        <ReferralSection referralCode={profile.referral_code} />
+      )}
+    </DashboardLayout>
   )
 }
