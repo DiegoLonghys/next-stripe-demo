@@ -4,40 +4,7 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-
-interface Plan {
-  id: string
-  name: string
-  price_monthly: number
-  price_yearly: number
-  plan_limits: {
-    max_events: number
-    max_attendees_per_event: number
-    max_team_members: number
-    allow_qr_codes: boolean
-    allow_custom_branding: boolean
-    allow_api_access: boolean
-    allow_advanced_analytics: boolean
-    allow_export_data: boolean
-    allow_payment_integration: boolean
-    allow_team_collaboration: boolean
-    support_level: string
-  }
-}
-
-interface Subscription {
-  id: string
-  plan_id: string
-  status: string
-  billing_interval: 'monthly' | 'yearly'
-  start_date: string
-  end_date: string | null
-  trial_end: string | null
-  auto_renew: boolean
-  next_billing_date: string | null
-  discount_code: string | null
-  discount_percent: number
-}
+import { getPlanBadgeColor, getPlanUsagePercentage } from '@/utils'
 
 export default function Dashboard() {
   const supabase = createClient()
@@ -205,20 +172,7 @@ export default function Dashboard() {
     router.refresh()
   }
 
-  const getPlanUsagePercentage = () => {
-    if (!currentPlan?.plan_limits?.max_events) return 0
-    return (eventsCount / currentPlan.plan_limits.max_events) * 100
-  }
 
-  const getPlanBadgeColor = (planName: string) => {
-    switch (planName?.toLowerCase()) {
-      case 'free': return 'bg-gray-100 text-gray-800'
-      case 'starter': return 'bg-blue-100 text-blue-800'
-      case 'pro': return 'bg-purple-100 text-purple-800'
-      case 'business': return 'bg-yellow-100 text-yellow-800'
-      default: return 'bg-gray-100 text-gray-800'
-    }
-  }
 
   if (loading) {
     return (
@@ -320,7 +274,7 @@ export default function Dashboard() {
             <div className="w-full bg-gray-200 rounded-full h-2">
               <div
                 className="bg-purple-600 rounded-full h-2 transition-all duration-300"
-                style={{ width: `${Math.min(getPlanUsagePercentage(), 100)}%` }}
+                style={{ width: `${Math.min(getPlanUsagePercentage(currentPlan, eventsCount), 100)}%` }}
               ></div>
             </div>
           </div>

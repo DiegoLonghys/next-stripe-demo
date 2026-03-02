@@ -25,19 +25,18 @@ export async function POST(req: Request) {
     console.log(`Webhook received: ${event.type}`)
     
     // Log the full event data for debugging
-    if (event.type === 'invoice.paid' || event.type === 'invoice.payment_succeeded') {
-      const invoice = event.data.object as Stripe.Invoice
-      console.log('Invoice details:', {
-        id: invoice.id,
-        subscription: invoice.parent?.type, // This might be null
-        parent: invoice.parent, // Check this structure
-        lines: invoice.lines?.data[0] // Check line items
-      })
-    }
+    // if (event.type === 'invoice.paid' || event.type === 'invoice.payment_succeeded') {
+    //   const invoice = event.data.object as Stripe.Invoice
+    //   console.log('Invoice details:', {
+    //     id: invoice.id,
+    //     subscription: invoice.parent?.type, // This might be null
+    //     parent: invoice.parent, // Check this structure
+    //     lines: invoice.lines?.data[0] // Check line items
+    //   })
+    // }
 
     const supabase = await createClient()
 
-    // Handle different event types
     switch (event.type) {
       case 'checkout.session.completed': {
         const session = event.data.object as Stripe.Checkout.Session
@@ -45,8 +44,7 @@ export async function POST(req: Request) {
         break
       }
 
-      case 'invoice.paid':
-      case 'invoice.payment_succeeded': {
+      case 'invoice.paid': {
         const invoice = event.data.object as Stripe.Invoice
         await handleInvoicePaid(invoice, supabase)
         break
@@ -69,6 +67,26 @@ export async function POST(req: Request) {
         await handleSubscriptionDeleted(subscription, supabase)
         break
       }
+
+      case 'customer.created':
+      case 'customer.updated':
+      case 'customer.deleted': {
+        const customer = event.data.object as Stripe.Customer
+        await handleCustomerChange(customer, event.type, supabase)
+        break
+      }
+
+      case 'invoice.created':
+      case 'invoice.finalized':
+      case 'invoice.updated':
+      case 'invoice.voided':
+      case 'invoice.marked_uncollectible': {
+        const invoice = event.data.object as Stripe.Invoice
+        console.log("-----event.type-----", event.type)
+        await handleInvoiceLifecycle(invoice, event.type, supabase)
+        break
+      }
+
     }
 
     return NextResponse.json({ received: true })
@@ -193,7 +211,7 @@ async function handleInvoicePaid(
   supabase: any
 ) {
   try {
-    let subscriptionId = invoice.parent!.subscription_details?.subscription as string
+    const subscriptionId = invoice.parent!.subscription_details?.subscription as string
 
     if (!subscriptionId) {
       console.log('Could not find subscription ID in invoice:', invoice.id)
@@ -312,7 +330,7 @@ async function handlePaymentFailed(
   supabase: any
 ) {
   try {
-    let subscriptionId = invoice.parent!.subscription_details?.subscription as string
+    const subscriptionId = invoice.parent!.subscription_details?.subscription as string
 
     if (!subscriptionId) {
       console.log('No subscription ID found in payment failed invoice:', invoice.id)
@@ -478,5 +496,234 @@ async function handleSubscriptionDeleted(
 
   } catch (error) {
     console.error('Error in handleSubscriptionDeleted:', error)
+  }
+}
+
+async function handleCustomerChange(
+  customer: Stripe.Customer,
+  eventType: string,
+  supabase: any
+) {
+  try {
+    // Extract user ID from metadata or find by email
+    const userId = customer.metadata?.userId
+    
+    if (!userId) {
+      // Try to find user by email if no userId in metadata
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('email', customer.email)
+        .maybeSingle()
+      
+      if (!profile) {
+        console.log('No user found for customer:', customer.id, 'email:', customer.email)
+        return
+      }
+      
+      // Update profile with stripe_customer_id
+      const { error: updateError } = await supabase
+        .from('profiles')
+        .update({ 
+          stripe_customer_id: customer.id,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', profile.id)
+      
+      if (updateError) {
+        console.error('Error updating profile with customer ID:', updateError)
+      }
+      
+      return
+    }
+
+    // Handle different customer events
+    switch (eventType) {
+      case 'customer.created':
+        console.log('Customer created in Stripe:', customer.id, 'for user:', userId)
+        // Just ensure the profile has the customer ID
+        await supabase
+          .from('profiles')
+          .update({ 
+            stripe_customer_id: customer.id,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', userId)
+        break
+
+      case 'customer.updated': {
+        // Update relevant profile information if needed
+        const updates: any = {
+          updated_at: new Date().toISOString()
+        }
+
+        // Update email if changed
+        if (customer.email) {
+          updates.email = customer.email
+        }
+
+        // Update phone if changed
+        if (customer.phone) {
+          updates.phone = customer.phone
+        }
+
+        // Update metadata if it contains profile fields
+        if (customer.metadata) {
+          if (customer.metadata.full_name) {
+            updates.full_name = customer.metadata.full_name
+          }
+          if (customer.metadata.company) {
+            updates.company = customer.metadata.company
+          }
+          if (customer.metadata.position) {
+            updates.position = customer.metadata.position
+          }
+        }
+
+        const { error: updateError } = await supabase
+          .from('profiles')
+          .update(updates)
+          .eq('id', userId)
+
+        if (updateError) {
+          console.error('Error updating profile from customer update:', updateError)
+        } else {
+          console.log('Profile updated from Stripe customer webhook for user:', userId)
+        }
+        break
+      }
+
+      case 'customer.deleted':
+        console.log('Customer deleted in Stripe:', customer.id, 'for user:', userId)
+        // Optionally handle customer deletion - maybe flag the user or cleanup
+        // Usually you don't delete the user, just remove the Stripe reference
+        await supabase
+          .from('profiles')
+          .update({ 
+            stripe_customer_id: null,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', userId)
+        break
+    }
+  } catch (error) {
+    console.error('Error in handleCustomerChange:', error)
+  }
+}
+
+async function handleInvoiceLifecycle(
+  invoice: Stripe.Invoice,
+  eventType: string,
+  supabase: any
+) {
+  try {
+    // 1. DATA GATHERING
+    const stripeSubscriptionId = invoice.parent?.subscription_details?.subscription as string;
+    const stripeCustomerId = invoice.customer as string;
+
+    // Fetch the subscription and user info from our DB using whichever ID we have
+    const { data: dbSub } = await supabase
+      .from('subscriptions')
+      .select('id, user_id')
+      .or(`stripe_subscription_id.eq.${stripeSubscriptionId},stripe_costumer_id.eq.${stripeCustomerId}`)
+      .maybeSingle();
+
+    const dbSubscriptionId = dbSub?.id || null;
+    const finalUserId = dbSub?.user_id;
+
+    if (!finalUserId) {
+      console.warn(`Could not identify user for invoice ${invoice.id}. Skipping...`);
+      return;
+    }
+
+    // 2. PREPARE COMMON INVOICE OBJECT
+    const invoiceData = {
+      user_id: finalUserId,
+      subscription_id: dbSubscriptionId,
+      amount: invoice.total / 100,
+      currency: invoice.currency,
+      status: invoice.status,
+      billing_reason: invoice.billing_reason,
+      invoice_pdf: invoice.invoice_pdf,
+      period_start: invoice.period_start ? new Date(invoice.period_start * 1000).toISOString() : null,
+      period_end: invoice.period_end ? new Date(invoice.period_end * 1000).toISOString() : null,
+      updated_at: new Date().toISOString()
+    };
+
+    // 3. HANDLE EVENTS
+    switch (eventType) {
+      case 'invoice.created':
+      case 'invoice.finalized': {
+        console.log(`Handling ${eventType}:`, invoice.id);
+        
+        const { data: existingInvoice } = await supabase
+          .from('invoices')
+          .select('id')
+          .eq('stripe_invoice_id', invoice.id)
+          .maybeSingle();
+
+        if (existingInvoice) {
+          await supabase.from('invoices').update(invoiceData).eq('stripe_invoice_id', invoice.id);
+        } else {
+          await supabase.from('invoices').insert({
+            ...invoiceData,
+            stripe_invoice_id: invoice.id,
+            created_at: new Date().toISOString()
+          });
+        }
+        break;
+      }
+
+      case 'invoice.updated': {
+        await supabase.from('invoices').update(invoiceData).eq('stripe_invoice_id', invoice.id);
+        break;
+      }
+
+      case 'invoice.voided': {
+        await supabase.from('invoices').update({ status: 'voided', updated_at: new Date().toISOString() }).eq('stripe_invoice_id', invoice.id);
+        break;
+      }
+
+      case 'invoice.marked_uncollectible': {
+        await supabase.from('invoices').update({ status: 'uncollectible', updated_at: new Date().toISOString() }).eq('stripe_invoice_id', invoice.id);
+        
+        if (stripeSubscriptionId) {
+          await supabase.from('subscriptions').update({ status: 'past_due' }).eq('stripe_subscription_id', stripeSubscriptionId);
+        }
+        break;
+      }
+
+      default:
+        console.log(`Unhandled invoice event type: ${eventType}`);
+    }
+  } catch (error) {
+    console.error('Error in handleInvoiceLifecycle:', error);
+  }
+}
+
+async function handleUpcomingInvoice(
+  invoice: Stripe.Invoice,
+  supabase: any
+) {
+  try {
+    const stripeSubscriptionId = invoice.parent?.subscription_details?.subscription as string;
+    const stripeCustomerId = invoice.customer as string;
+
+    // Use our DB to find the user via Customer ID if metadata is missing
+    const { data: subscription } = await supabase
+      .from('subscriptions')
+      .select('user_id, plan_id')
+      .or(`stripe_subscription_id.eq.${stripeSubscriptionId},stripe_costumer_id.eq.${stripeCustomerId}`)
+      .maybeSingle();
+
+    const targetUserId = subscription?.user_id;
+
+    if (targetUserId) {
+      console.log(`Upcoming invoice notification for User: ${targetUserId}, Plan: ${subscription?.plan_id}`);
+      // Example: Trigger an email or in-app notification
+      // await sendReminder(targetUserId, invoice.amount_due);
+    }
+  } catch (error) {
+    console.error('Error in handleUpcomingInvoice:', error);
   }
 }
