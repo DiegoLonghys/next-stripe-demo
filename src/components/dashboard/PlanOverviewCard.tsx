@@ -32,7 +32,7 @@ export default function PlanOverviewCard({
             </span>
           </div>
           <p className="text-gray-600 mt-1">
-            {subscription?.billing_interval === 'yearly'
+            {subscription?.billing_interval === 'year'
               ? `€${currentPlan.price_yearly}/year`
               : `€${currentPlan.price_monthly}/month`}
             {subscription?.discount_percent ? ` (${subscription.discount_percent}% off)` : ''}

@@ -105,7 +105,7 @@ export default function Dashboard() {
     }
   }
 
-  const handlePlanChange = async (planId: string, interval: 'monthly' | 'yearly') => {
+  const handlePlanChange = async (planId: string, interval: 'month' | 'year') => {
     try {
       setLoading(true)
 

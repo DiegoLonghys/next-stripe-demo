@@ -36,7 +36,7 @@ export async function POST(req: Request) {
           user_id: user.id,
           plan_id: 'free',
           status: 'active',
-          billing_interval: 'monthly',
+          billing_interval: 'month',
           start_date: new Date().toISOString(),
           auto_renew: true
         })
@@ -45,7 +45,7 @@ export async function POST(req: Request) {
     }
     
     // For paid plans, proceed with Stripe checkout
-    const priceId = interval === 'monthly' 
+    const priceId = interval === 'month' 
       ? plan.stripe_price_id_monthly 
       : plan.stripe_price_id_yearly
     

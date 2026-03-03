@@ -23,7 +23,7 @@ export async function POST(req: Request) {
     }
 
     console.log(`Webhook received: ${event.type}`)
-    
+
     // Log the full event data for debugging
     // if (event.type === 'invoice.paid' || event.type === 'invoice.payment_succeeded') {
     //   const invoice = event.data.object as Stripe.Invoice
@@ -46,7 +46,7 @@ export async function POST(req: Request) {
 
       case 'invoice.paid': {
         const invoice = event.data.object as Stripe.Invoice
-        await handleInvoicePaid(invoice, supabase)
+        // await handleInvoicePaid(invoice, supabase)
         break
       }
 
@@ -82,7 +82,6 @@ export async function POST(req: Request) {
       case 'invoice.voided':
       case 'invoice.marked_uncollectible': {
         const invoice = event.data.object as Stripe.Invoice
-        console.log("-----event.type-----", event.type)
         await handleInvoiceLifecycle(invoice, event.type, supabase)
         break
       }
@@ -92,29 +91,33 @@ export async function POST(req: Request) {
     return NextResponse.json({ received: true })
   } catch (error) {
     console.error('Webhook error:', error)
-    return NextResponse.json({ 
-      received: true, 
-      error: error instanceof Error ? error.message : 'Unknown error' 
+    return NextResponse.json({
+      received: true,
+      error: error instanceof Error ? error.message : 'Unknown error'
     })
   }
 }
 
 async function handleCheckoutCompleted(
-  session: Stripe.Checkout.Session, 
+  session: Stripe.Checkout.Session,
   supabase: any
 ) {
   try {
-    const userId = session.client_reference_id || session.metadata?.userId
-    const planId = session.metadata?.planId
-    const interval = session.metadata?.interval
+    const userId = session.client_reference_id;
+    if (!userId) return;
 
-    if (!userId || !planId || !interval) {
-      console.error('Missing metadata in session:', { 
-        sessionId: session.id, 
-        client_reference_id: session.client_reference_id,
-        metadata: session.metadata 
-      })
-      return
+    const subscription = await stripe.subscriptions.retrieve(session.subscription as string);
+    const stripePriceId = subscription.items.data[0].price.id;
+
+    const { data: plan } = await supabase
+      .from('plans')
+      .select('id') // This is the 'business' or 'pro' string
+      .or(`stripe_price_id_monthly.eq.${stripePriceId},stripe_price_id_yearly.eq.${stripePriceId}`)
+      .single();
+
+    if (!plan) {
+      console.error("This price ID isn't mapped in our database!");
+      return;
     }
 
     if (!session.subscription) {
@@ -122,92 +125,34 @@ async function handleCheckoutCompleted(
       return
     }
 
-    // Check if subscription already exists in database
-    const { data: existingSub } = await supabase
-      .from('subscriptions')
-      .select('id')
-      .eq('stripe_subscription_id', session.subscription)
-      .maybeSingle()
-
-    if (existingSub) {
-      console.log('Subscription already exists in DB, skipping insert')
-      return
-    }
-
-    // Get subscription details from Stripe
-    const subscription: Stripe.Subscription = await stripe.subscriptions.retrieve(
-      session.subscription as string
-    )
-    
-    // Safe date handling
-    const startDate = subscription.items.data[0].current_period_start
-      ? new Date(subscription.items.data[0].current_period_end * 1000) 
-      : new Date()
-    
-    const endDate = subscription.items.data[0].current_period_end 
-      ? new Date(subscription.items.data[0].current_period_end * 1000) 
-      : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
-
-    // Validate dates
-    if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
-      console.error('Invalid dates from Stripe:', {
-        current_period_start: subscription.items.data[0].current_period_start,
-        current_period_end: subscription.items.data[0].current_period_end
-      })
-      return
-    }
-
-    // End current subscription if exists
-    await supabase
-      .from('subscriptions')
-      .update({ 
-        status: 'expired', 
-        end_date: new Date().toISOString() 
-      })
-      .eq('user_id', userId)
-      .eq('status', 'active')
-
     // Create new subscription
-    const { error: insertError } = await supabase
+    const { error: updateError } = await supabase
       .from('subscriptions')
-      .insert({
-        user_id: userId,
-        plan_id: planId,
+      .update({
+        plan_id: plan.id,
         status: 'active',
-        billing_interval: interval,
-        start_date: startDate.toISOString(),
-        end_date: endDate.toISOString(),
         stripe_subscription_id: session.subscription,
         stripe_customer_id: session.customer,
-        stripe_price_id: subscription.items?.data[0]?.price?.id,
-        auto_renew: true,
-        next_billing_date: endDate.toISOString(),
-        created_at: new Date().toISOString(),
+        stripe_price_id: subscription.items.data[0].price.id,
+        billing_interval: subscription.items.data[0].price.recurring?.interval,
         updated_at: new Date().toISOString()
       })
+      .eq('user_id', userId);
 
-    if (insertError) {
-      console.error('Error inserting subscription:', insertError)
+    if (updateError) {
+      console.error('Error updating subscription:', updateError)
       return
     }
 
-    console.log('Subscription created successfully for user:', userId)
-
-    // Update profile with customer ID if not exists
-    if (session.customer) {
-      await supabase
-        .from('profiles')
-        .update({ stripe_customer_id: session.customer as string })
-        .eq('id', userId)
-    }
-
+    console.log('Subscription updated successfully for user:', userId)
   } catch (error) {
     console.error('Error in handleCheckoutCompleted:', error)
   }
 }
 
+
 async function handleInvoicePaid(
-  invoice: Stripe.Invoice, 
+  invoice: Stripe.Invoice,
   supabase: any
 ) {
   try {
@@ -230,12 +175,12 @@ async function handleInvoicePaid(
 
     if (!existingSub) {
       console.log('Subscription not found in DB, fetching from Stripe...')
-      
+
       // Try to get subscription from Stripe
       try {
         const subscription = await stripe.subscriptions.retrieve(subscriptionId)
         const userId = subscription.metadata?.userId
-        
+
         if (userId) {
           // Create the subscription record
           const { error: insertError } = await supabase
@@ -244,7 +189,7 @@ async function handleInvoicePaid(
               user_id: userId,
               plan_id: subscription.metadata?.planId || 'starter',
               status: subscription.status,
-              billing_interval: subscription.metadata?.interval || 'monthly',
+              billing_interval: subscription.metadata?.interval || 'month',
               start_date: new Date(subscription.items.data[0].current_period_start * 1000).toISOString(),
               end_date: new Date(subscription.items.data[0].current_period_end * 1000).toISOString(),
               stripe_subscription_id: subscriptionId,
@@ -262,7 +207,7 @@ async function handleInvoicePaid(
           }
 
           console.log('Created missing subscription from invoice webhook')
-          
+
           // Update profile with customer ID
           if (invoice.customer) {
             await supabase
@@ -304,11 +249,11 @@ async function handleInvoicePaid(
         status: invoice.status,
         billing_reason: invoice.billing_reason,
         invoice_pdf: invoice.invoice_pdf,
-        period_start: invoice.period_start 
-          ? new Date(invoice.period_start * 1000).toISOString() 
+        period_start: invoice.period_start
+          ? new Date(invoice.period_start * 1000).toISOString()
           : null,
-        period_end: invoice.period_end 
-          ? new Date(invoice.period_end * 1000).toISOString() 
+        period_end: invoice.period_end
+          ? new Date(invoice.period_end * 1000).toISOString()
           : null,
         paid_at: invoice.status === 'paid' ? new Date().toISOString() : null,
         created_at: new Date().toISOString()
@@ -326,7 +271,7 @@ async function handleInvoicePaid(
 }
 
 async function handlePaymentFailed(
-  invoice: Stripe.Invoice, 
+  invoice: Stripe.Invoice,
   supabase: any
 ) {
   try {
@@ -357,24 +302,22 @@ async function handlePaymentFailed(
 }
 
 async function handleSubscriptionUpdated(
-  subscription: Stripe.Subscription, 
+  subscription: Stripe.Subscription,
   supabase: any
 ) {
   try {
     const status = subscription.status
+    const stripePriceId = subscription.items?.data[0]?.price?.id
 
-    const priceId = subscription.items?.data[0]?.price?.id
-
-    // Check if subscription exists
     const { data: existingSub } = await supabase
       .from('subscriptions')
       .select('id')
       .eq('stripe_subscription_id', subscription.id)
-      .maybeSingle()
+      .single()
 
     if (!existingSub) {
       console.log('Subscription not found in DB during update, creating...')
-      
+
       // Create the subscription if it doesn't exist
       const { error: insertError } = await supabase
         .from('subscriptions')
@@ -382,12 +325,12 @@ async function handleSubscriptionUpdated(
           user_id: subscription.metadata?.userId,
           plan_id: subscription.metadata?.planId || 'starter',
           status: status,
-          billing_interval: subscription.metadata?.interval || 'monthly',
+          billing_interval: subscription.metadata?.interval || 'month',
           start_date: new Date(subscription.items.data[0].current_period_start * 1000).toISOString(),
           end_date: new Date(subscription.items.data[0].current_period_end * 1000).toISOString(),
           stripe_subscription_id: subscription.id,
           stripe_customer_id: subscription.customer,
-          stripe_price_id: priceId,
+          stripe_price_id: stripePriceId,
           auto_renew: !subscription.cancel_at_period_end,
           next_billing_date: new Date(subscription.items.data[0].current_period_end * 1000).toISOString(),
           created_at: new Date().toISOString(),
@@ -402,18 +345,26 @@ async function handleSubscriptionUpdated(
       return
     }
 
+    const { data: plan } = await supabase
+      .from('plans')
+      .select('id') // This is the 'business' or 'pro' string
+      .or(`stripe_price_id_monthly.eq.${stripePriceId},stripe_price_id_yearly.eq.${stripePriceId}`)
+      .single();
+
     const { error } = await supabase
       .from('subscriptions')
       .update({
+        plan_id: plan.id,
         status: status,
-        end_date: subscription.items.data[0].current_period_end 
-          ? new Date(subscription.items.data[0].current_period_end * 1000).toISOString() 
+        end_date: subscription.items.data[0].current_period_end
+          ? new Date(subscription.items.data[0].current_period_end * 1000).toISOString()
           : null,
-        next_billing_date: subscription.items.data[0].current_period_end 
-          ? new Date(subscription.items.data[0].current_period_end * 1000).toISOString() 
+        next_billing_date: subscription.items.data[0].current_period_end
+          ? new Date(subscription.items.data[0].current_period_end * 1000).toISOString()
           : null,
         auto_renew: !subscription.cancel_at_period_end,
-        stripe_price_id: priceId,
+        billing_interval: subscription.items.data[0].price.recurring?.interval,
+        stripe_price_id: stripePriceId,
         updated_at: new Date().toISOString()
       })
       .eq('stripe_subscription_id', subscription.id)
@@ -430,7 +381,7 @@ async function handleSubscriptionUpdated(
 }
 
 async function handleSubscriptionDeleted(
-  subscription: Stripe.Subscription, 
+  subscription: Stripe.Subscription,
   supabase: any
 ) {
   try {
@@ -445,8 +396,8 @@ async function handleSubscriptionDeleted(
       // Mark old subscription as expired
       const { error } = await supabase
         .from('subscriptions')
-        .update({ 
-          status: 'expired', 
+        .update({
+          status: 'expired',
           end_date: new Date().toISOString(),
           updated_at: new Date().toISOString()
         })
@@ -461,7 +412,7 @@ async function handleSubscriptionDeleted(
 
     // Check if user already has a free subscription
     const userId = existingSub?.user_id || subscription.metadata?.userId
-    
+
     if (userId) {
       const { data: freeSub } = await supabase
         .from('subscriptions')
@@ -479,7 +430,7 @@ async function handleSubscriptionDeleted(
             user_id: userId,
             plan_id: 'free',
             status: 'active',
-            billing_interval: 'monthly',
+            billing_interval: 'month',
             start_date: new Date().toISOString(),
             auto_renew: true,
             created_at: new Date().toISOString(),
@@ -507,7 +458,7 @@ async function handleCustomerChange(
   try {
     // Extract user ID from metadata or find by email
     const userId = customer.metadata?.userId
-    
+
     if (!userId) {
       // Try to find user by email if no userId in metadata
       const { data: profile } = await supabase
@@ -515,25 +466,25 @@ async function handleCustomerChange(
         .select('id')
         .eq('email', customer.email)
         .maybeSingle()
-      
+
       if (!profile) {
         console.log('No user found for customer:', customer.id, 'email:', customer.email)
         return
       }
-      
+
       // Update profile with stripe_customer_id
       const { error: updateError } = await supabase
         .from('profiles')
-        .update({ 
+        .update({
           stripe_customer_id: customer.id,
           updated_at: new Date().toISOString()
         })
         .eq('id', profile.id)
-      
+
       if (updateError) {
         console.error('Error updating profile with customer ID:', updateError)
       }
-      
+
       return
     }
 
@@ -544,7 +495,7 @@ async function handleCustomerChange(
         // Just ensure the profile has the customer ID
         await supabase
           .from('profiles')
-          .update({ 
+          .update({
             stripe_customer_id: customer.id,
             updated_at: new Date().toISOString()
           })
@@ -599,7 +550,7 @@ async function handleCustomerChange(
         // Usually you don't delete the user, just remove the Stripe reference
         await supabase
           .from('profiles')
-          .update({ 
+          .update({
             stripe_customer_id: null,
             updated_at: new Date().toISOString()
           })
@@ -655,7 +606,7 @@ async function handleInvoiceLifecycle(
       case 'invoice.created':
       case 'invoice.finalized': {
         console.log(`Handling ${eventType}:`, invoice.id);
-        
+
         const { data: existingInvoice } = await supabase
           .from('invoices')
           .select('id')
@@ -686,7 +637,7 @@ async function handleInvoiceLifecycle(
 
       case 'invoice.marked_uncollectible': {
         await supabase.from('invoices').update({ status: 'uncollectible', updated_at: new Date().toISOString() }).eq('stripe_invoice_id', invoice.id);
-        
+
         if (stripeSubscriptionId) {
           await supabase.from('subscriptions').update({ status: 'past_due' }).eq('stripe_subscription_id', stripeSubscriptionId);
         }

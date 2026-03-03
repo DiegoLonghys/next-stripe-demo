@@ -185,7 +185,7 @@ export default function LoginPage() {
             user_id: userId,
             plan_id: 'free',
             status: 'active',
-            billing_interval: 'monthly',
+            billing_interval: 'month',
             start_date: now.toISOString(),
             auto_renew: true,
             created_at: now.toISOString(),

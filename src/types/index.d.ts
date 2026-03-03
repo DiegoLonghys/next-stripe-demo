@@ -22,7 +22,7 @@ interface Subscription {
   id: string
   plan_id: string
   status: string
-  billing_interval: 'monthly' | 'yearly'
+  billing_interval: 'month' | 'year'
   start_date: string
   end_date: string | null
   trial_end: string | null

@@ -1,7 +1,7 @@
 interface PlanSelectorProps {
   availablePlans: any[]
   currentPlanId?: string
-  onPlanChange: (planId: string, interval: 'monthly' | 'yearly') => void
+  onPlanChange: (planId: string, interval: 'month' | 'year') => void
 }
 
 export default function PlanSelector({ availablePlans, currentPlanId, onPlanChange }: PlanSelectorProps) {
@@ -53,13 +53,13 @@ export default function PlanSelector({ availablePlans, currentPlanId, onPlanChan
             {plan.id !== currentPlanId ? (
               <div className="mt-4 space-y-2">
                 <button
-                  onClick={() => onPlanChange(plan.id, 'monthly')}
+                  onClick={() => onPlanChange(plan.id, 'month')}
                   className="w-full px-3 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition text-sm"
                 >
                   Select Monthly
                 </button>
                 <button
-                  onClick={() => onPlanChange(plan.id, 'yearly')}
+                  onClick={() => onPlanChange(plan.id, 'year')}
                   className="w-full px-3 py-2 border border-purple-600 text-purple-600 rounded-lg hover:bg-purple-50 transition text-sm"
                 >
                   Select Yearly (Save 17%)
